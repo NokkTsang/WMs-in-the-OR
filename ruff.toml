@@ -1,0 +1,18 @@
+line-length = 130
+target-version = "py311"
+extend-exclude = ["*.ipynb", "third_party", "ckpts"]  # notebooks are generated from the jupytext .py files
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["B905"]  # zip(strict=...) is noise for plotting loops
+
+[lint.per-file-ignores]
+# put `scripts/` on sys.path before importing the local module
+"scripts/*.py" = ["E402"]
+# figure text blocks are long literal strings
+"scripts/make_roadmap.py" = ["E501"]
+# notebooks end cells with a bare expression to display it, and have long markdown comment lines
+"notebooks/*.py" = ["E402", "B018", "E501"]
+
+[lint.isort]
+known-first-party = ["egoexor_io", "constants", "probe_utils"]

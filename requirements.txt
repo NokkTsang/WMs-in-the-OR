@@ -1,0 +1,23 @@
+numpy
+pandas
+scipy
+scikit-learn
+umap-learn
+matplotlib
+networkx
+h5py
+pillow
+pillow-lut
+requests
+timm
+einops
+# PyTorch with CUDA 12.8 wheels (needed for RTX 50xx / Blackwell):
+#   uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+torch
+torchvision
+# notebooks (.py <-> .ipynb via jupytext) and linting
+jupyter
+ipykernel
+jupytext
+nbconvert
+ruff

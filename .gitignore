@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+.ruff_cache/
+
+# large / regenerable
+data/
+features/
+ckpts/
+third_party/
+outputs/
+
+# notebooks: the jupytext .py files are the source of truth, executed .ipynb files are regenerated
+notebooks/*.ipynb
