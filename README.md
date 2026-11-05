@@ -1,13 +1,101 @@
 # World models for the OR: EgoExOR tests
 
 Goal: an OR world model that (1) encodes OR video into a latent state, (2) predicts how that state evolves, and (3) generates the predicted future.
-This repo contains the first tests of parts 1 and 2 on **EgoExOR** (Legacy release, 336×336). The same tests are being run on MM-OR by another group; both are compared in the project meeting.
+This repo contains the first tests of stages 1 and 2 on **EgoExOR** (Legacy release, 336×336). The same tests are being run on MM-OR by another group; both are compared in the project meeting.
+
+**Contents:** [Architecture](#proposed-architecture) · [Results summary](#results-summary-tests-run-2026-11-04) · [Detailed results](#detailed-results) · [Next steps](#next-steps) · [Limits](#limits) · [Data](#egoexor-data) · [Reproduce](#reproduce)
+
+## Proposed architecture
+
+<p align="center"><img src="docs/archite.png" alt="Proposed architecture" width="560"></p>
+
+| Step | Component | Role |
+|---|---|---|
+| Input | Past OR video | Clips of past frames `x_t` |
+| Stage 1: Encoding | Frozen V-JEPA 2 | Maps video to latent states `z_t` |
+| Stage 2: Dynamics | Dynamics model | Predicts the **future OR state** from past latents: future latent `ẑ`, phase `p̂` and scene graph `Ĝ` together |
+| Stage 3: Generation | Future OR state → future video | Renders the predicted state as video |
+
+* **Variant A (main line):** the dynamics model takes **video latents only**. Phase and scene-graph labels are used only as supervision targets for `p̂` and `Ĝ`.
+* **Variant B (optional ablation):** a state-fusion module also feeds past scene graph `G(t-k:t)` and past phase `p(t-k:t)` to the dynamics model. A vs B measures what structured past state adds to video.
+* The "controls" in the results (true current scene graph + phase) are an evaluation baseline, not part of the model.
+
+```mermaid
+flowchart TB
+    subgraph INPUT["📥 Input: historical OR data"]
+        X["Past OR video<br/>x(t-k:t)"]
+        G["Past scene graph<br/>G(t-k:t)"]
+        P["Past phase labels<br/>p(t-k:t)"]
+    end
+    subgraph STAGE1["① Stage 1 · Encoding  ✅ tested"]
+        E["Frozen V-JEPA 2"]
+        Z["Past latents<br/>z(t-k:t)"]
+    end
+    subgraph OPTIONAL["Optional · Variant B"]
+        F["State fusion module"]
+    end
+    subgraph STAGE2["② Stage 2 · OR dynamics / world model  ✅ baselines tested"]
+        D["Dynamics model<br/>Ridge / GRU / Temporal Transformer"]
+        ZF["Future latent<br/>ẑ(t+δ)"]
+        PF["Future phase<br/>p̂(t+δ)"]
+        GF["Future scene graph<br/>Ĝ(t+δ)"]
+    end
+    subgraph STATE["🧩 Future OR state"]
+        S["Ŝ = (ẑ, p̂, Ĝ)"]
+    end
+    subgraph STAGE3["③ Stage 3 · Future video generation  ⏳ to do"]
+        GEN["Conditional video generator"]
+        XF["Predicted future OR video<br/>x̂(t+δ : t+δ+T)"]
+    end
+    subgraph TRAIN["🎯 Training supervision"]
+        GTZ["Future video / latent target"]
+        GTP["Ground-truth future phase"]
+        GTG["Ground-truth future scene graph"]
+        L["Prediction and generation losses"]
+    end
+
+    X --> E --> Z --> D
+    D --> ZF & PF & GF
+    ZF & PF & GF --> S
+    S --> GEN --> XF
+
+    G -. "optional input" .-> F
+    P -. "optional input" .-> F
+    F -. "fused representation" .-> D
+
+    ZF & PF & GF & XF -.-> L
+    GTZ -. "latent target" .-> L
+    GTP -. "phase target" .-> L
+    GTG -. "scene-graph target" .-> L
+
+    classDef inp fill:#e3eeff,stroke:#5b8def,color:#111
+    classDef enc fill:#e3f6e8,stroke:#3aa65b,color:#111
+    classDef dyn fill:#f0e8fb,stroke:#8a5bd0,color:#111
+    classDef gen fill:#fdeaea,stroke:#d9534f,color:#111
+    classDef opt fill:#fff8e1,stroke:#e0a800,color:#111
+    classDef sup fill:#f2f2f2,stroke:#888,color:#111
+    class X,G,P inp
+    class E,Z enc
+    class D,ZF,PF,GF,S dyn
+    class GEN,XF gen
+    class F opt
+    class GTZ,GTP,GTG,L sup
+    style INPUT fill:#f7faff,stroke:#5b8def
+    style STAGE1 fill:#f5fcf7,stroke:#3aa65b
+    style STAGE2 fill:#faf7fe,stroke:#8a5bd0
+    style STATE fill:#faf7fe,stroke:#8a5bd0,stroke-dasharray: 4
+    style STAGE3 fill:#fff7f7,stroke:#d9534f
+    style OPTIONAL fill:#fffdf3,stroke:#e0a800,stroke-dasharray: 4
+    style TRAIN fill:#fafafa,stroke:#888,stroke-dasharray: 4
+```
+
+### Roadmap
 
 ![Project roadmap](docs/roadmap.png)
 
 *Green = tested, preliminary conclusion. Red = to do. Figure source: `scripts/make_roadmap.py`.*
 
-## Status and conclusions (tests run 2026-11-04)
+## Results summary (tests run 2026-11-04)
 
 | Stage | Tested | Preliminary conclusion |
 |---|---|---|
@@ -15,6 +103,8 @@ This repo contains the first tests of parts 1 and 2 on **EgoExOR** (Legacy relea
 | **2a Predicting: latent space** | copy-last, ridge, MLP, GRU, Transformer on V-JEPA 2 latents | **Ridge is best**; MLP / GRU / Transformer give no gain at this data size |
 | **2b Predicting: structured OR state** | which scene-graph relations will appear / disappear (+1 s, +4 s) | The latent beats privileged controls on "disappear" events; the predictor class makes little difference |
 | **3 Generative** | not started | Candidate to check: NVIDIA Cosmos-H-Surgical (image / text → future video; trained on surgical-robot video, so OR domain fit, licence and conditioning on OR state are open) |
+
+## Detailed results
 
 ### Metrics (what they tell us)
 * **Latent nMSE** = error of the predicted future latent / error of "nothing changes" (copy-last). < 1 means the latent change is predictable. Caveat: smoother latents get a lower nMSE without carrying more semantics.
@@ -83,7 +173,7 @@ Onset AUC / offset AUC at +1 s / +4 s (`controls` = true current scene graph + p
 * Scene-graph events come from sparse per-frame annotations sampled once per second.
 * Not tested: ego cameras, gaze, hands, audio, point clouds, the Ultrasound screen stream, SurgMotion-G.
 
-## EgoExOR data (what we have and what can be used)
+## EgoExOR data
 * **41 takes** (one take = one continuous 1–4 min recording): **MISS** 16 takes (4 phases), **Ultrasound** 25 takes (5 phases); 94 min, 84,553 frames at 15 FPS, simulated procedures.
 * **Cameras:** MISS `external_1..5` + `microscope` (+ ego cameras); Ultrasound `simstation`, `or_light` (+ ego), and `external_1..5` + an `ultrasound` screen stream only in 18 takes (phases 3–5). `external_*` frames are stored uncorrected; `egoexor_io.to_rgb` applies the official colour LUT.
 * **Labels:** scene graph on every frame (37 entities / 23 relations, sparse: 3–9 triplets per frame), phase per take, scripted anomalies per take (nominal takes are always the first ones of a phase).
@@ -103,7 +193,8 @@ powershell -ExecutionPolicy Bypass -File scripts\run_pipeline.ps1      # feature
 ```
 Pipeline options: `-Procedure MISS`, `-Notebooks 04_predictor_comparison`, `-SkipExtract`, `-SkipNotebook`. Lint: `.venv\Scripts\ruff.exe check scripts notebooks`.
 
-Checkpoints in `ckpts\` (DINOv2 comes from `timm`):
+### Checkpoints
+Stored in `ckpts\` (DINOv2 comes from `timm`):
 
 | Encoder | File | Source |
 |---|---|---|
