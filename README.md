@@ -7,19 +7,6 @@ This repo contains the first tests of stages 1 and 2 on **EgoExOR** (Legacy rele
 
 ## Proposed architecture
 
-<p align="center"><img src="docs/archite.png" alt="Proposed architecture" width="560"></p>
-
-| Step | Component | Role |
-|---|---|---|
-| Input | Past OR video | Clips of past frames `x_t` |
-| Stage 1: Encoding | Frozen V-JEPA 2 | Maps video to latent states `z_t` |
-| Stage 2: Dynamics | Dynamics model | Predicts the **future OR state** from past latents: future latent `ẑ`, phase `p̂` and scene graph `Ĝ` together |
-| Stage 3: Generation | Future OR state → future video | Renders the predicted state as video |
-
-* **Variant A (main line):** the dynamics model takes **video latents only**. Phase and scene-graph labels are used only as supervision targets for `p̂` and `Ĝ`.
-* **Variant B (optional ablation):** a state-fusion module also feeds past scene graph `G(t-k:t)` and past phase `p(t-k:t)` to the dynamics model. A vs B measures what structured past state adds to video.
-* The "controls" in the results (true current scene graph + phase) are an evaluation baseline, not part of the model.
-
 ```mermaid
 flowchart TB
     subgraph INPUT["📥 Input: historical OR data"]
@@ -88,6 +75,10 @@ flowchart TB
     style OPTIONAL fill:#fffdf3,stroke:#e0a800,stroke-dasharray: 4
     style TRAIN fill:#fafafa,stroke:#888,stroke-dasharray: 4
 ```
+
+* **Variant A (main line):** the dynamics model takes **video latents only**; phase and scene-graph labels are only supervision targets for `p̂` and `Ĝ`.
+* **Variant B (optional ablation):** a fusion module also feeds past scene graph and phase to the dynamics model. A vs B measures what structured past state adds to video.
+* The "controls" in the results (true current scene graph + phase) are an evaluation baseline, not part of the model.
 
 ### Roadmap
 
