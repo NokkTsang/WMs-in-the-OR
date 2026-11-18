@@ -1,6 +1,6 @@
 {
   "status": "complete",
-  "completed_utc": "2026-11-18T00:13:33.511983+00:00",
+  "completed_utc": "2026-11-18T00:53:17.927104+00:00",
   "procedure": "MISS",
   "phase": 3,
   "phase_name": "Microscope-assisted disc removal",
@@ -20,6 +20,7 @@
     "ego_surgmotion": "mean of SurgMotion features over available ego cameras (head_surgeon, assistant, circulator, anesthetist)",
     "all_vjepa2": "concat(V-JEPA 2 exo mean, V-JEPA 2 ego mean) -- single-encoder baseline",
     "all_surgmotion": "concat(SurgMotion exo mean, SurgMotion ego mean) -- single-encoder baseline",
-    "dual_fusion": "concat(V-JEPA 2 exo mean, SurgMotion ego mean) -- the proposed dual-encoder design"
+    "dual_fusion": "concat(V-JEPA 2 exo mean, SurgMotion ego mean) -- the proposed dual-encoder design",
+    "reverse_fusion": "concat(SurgMotion exo mean, V-JEPA 2 ego mean) -- opposite assignment, negative control"
   }
 }

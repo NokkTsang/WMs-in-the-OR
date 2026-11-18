@@ -171,22 +171,25 @@ Reports: [MISS](notebooks/05_vjepa_feasibility_MISS.ipynb) · [Ultrasound](noteb
 
 ## Dual-encoder exo/ego fusion test (MISS phase 3)
 
-**Results** (micro-F1 over all GT triplets, mean ± 95% take-bootstrap CI from 2,000 resamples, **all 6 MISS/phase-3 takes**, leave-one-take-out — not just take 1; `outputs/feasibility/MISS_phase3_fusion/`). Three directly-comparable variants, same head/split/thresholds, differing only in which encoder sees which camera:
+**Results** (micro-F1 over all GT triplets, mean ± 95% take-bootstrap CI from 2,000 resamples, **all 6 MISS/phase-3 takes**, leave-one-take-out — not just take 1; `outputs/feasibility/MISS_phase3_fusion/`). Four directly-comparable variants, same head/split/thresholds, differing only in which encoder sees which camera:
 
 | Variant | now: graph AT t | +1s: graph AFTER t | +4s: graph AFTER t |
 |---|---|---|---|
 | `all_vjepa2` — V-JEPA 2 for every camera (exo + ego) | 0.890 [0.877, 0.901] | 0.884 [0.875, 0.894] | **0.826 [0.805, 0.843]** |
 | `all_surgmotion` — SurgMotion for every camera (exo + ego) | 0.884 [0.871, 0.894] | 0.864 [0.855, 0.873] | 0.798 [0.774, 0.823] |
 | **`dual_fusion` — V-JEPA 2 on exo + SurgMotion on ego (proposed)** | **0.893 [0.881, 0.907]** | **0.891 [0.878, 0.904]** | 0.812 [0.790, 0.833] |
+| `reverse_fusion` — SurgMotion on exo + V-JEPA 2 on ego (negative control) | 0.878 [0.873, 0.883] | 0.873 [0.869, 0.877] | 0.820 [0.802, 0.839] |
+
+`reverse_fusion` tests the opposite camera/encoder assignment. It is clearly worse than `dual_fusion` at `t` and +1s (0.878/0.873 vs. 0.893/0.891), supporting the intuition that SurgMotion's surgical fine-tuning is better spent on the close-up egocentric views, not the wide exocentric ones; at +4s it lands between `all_vjepa2` and `dual_fusion`, so the gap is not a flat offset in every setting.
 
 (Single-view-only ablations, for reference: `exo_vjepa2` 0.888 / 0.885 / 0.817; `ego_surgmotion` 0.886 / 0.871 / 0.813 — both weaker than any "both views" variant above at `t`/+1s.)
 
-![MISS phase 3: all-V-JEPA2 vs. all-SurgMotion vs. dual-encoder fusion, 2026-11-18](docs/phase3_fusion_2026-11-18.png)
+![MISS phase 3: all-V-JEPA2 vs. all-SurgMotion vs. dual-encoder fusion vs. reverse control, 2026-11-18](docs/phase3_fusion_2026-11-18.png)
 
 *Figure: scene-graph triplet micro-F1 (95% take-bootstrap CI), all 6 MISS-phase-3 takes, leave-one-take-out, test run **2026-11-18**. `scripts/make_phase3_fusion_chart.py`.*
 
-* **Current graph and +1s:** `all_surgmotion` (SurgMotion on every camera) is consistently the **weakest** of the three — using SurgMotion for the wide exocentric views does not help. The proposed `dual_fusion` (V-JEPA 2 exo / SurgMotion ego) is the best of the three at both horizons, by +0.3 to +2.7 micro-F1 points — small but in the direction the fusion hypothesis predicts.
-* **+4s:** `all_vjepa2` (plain V-JEPA 2 everywhere) is best; `dual_fusion` is statistically tied with `all_surgmotion` for worst. Splitting encoders by view does not help longer-horizon forecasting in this test.
+* **Current graph and +1s:** `all_surgmotion` (SurgMotion on every camera) is consistently the **weakest** — using SurgMotion for the wide exocentric views does not help. `dual_fusion` is the best at both horizons; `reverse_fusion` (same two encoders, swapped) is the worst or near-worst, which is the expected direction if SurgMotion's benefit really is specific to close-up egocentric motion.
+* **+4s:** `all_vjepa2` (plain V-JEPA 2 everywhere) is best; `dual_fusion` and `reverse_fusion` are both below it and close to each other. Splitting encoders by view does not help longer-horizon forecasting in this test, regardless of assignment direction.
 * **CIs still overlap substantially** between `all_vjepa2` and `dual_fusion` at every horizon, so "dual_fusion wins at t/+1s" is a lean, not a settled result, even using all 6 takes.
 
 | input video | predicted-graph time | GT triplets | predicted triplets | sample F1 |
@@ -199,10 +202,10 @@ The model over-predicts specific instrument-handling triplets (extra, rarely mis
 
 ![MISS/3/take/1 per-clip prediction quality over time, 2026-11-18](docs/phase3_fusion_timeline_2026-11-18.png)
 
-*Figure: per-clip sample-F1 (`2·|GT∩pred| / (|GT|+|pred|)`) over time for the 3 primary variants, one row per horizon; x-axis = the time the predicted graph is **for** (not the input time). The annotated example shows one clip's input window and its nowcast target explicitly. `scripts/make_phase3_fusion_chart.py`.*
+*Figure: per-clip sample-F1 (`2·|GT∩pred| / (|GT|+|pred|)`) over time for the 4 variants, one row per horizon; x-axis = the time the predicted graph is **for** (not the input time). The annotated example shows one clip's input window and its nowcast target explicitly. `scripts/make_phase3_fusion_chart.py`.*
 
-* Quality dips together across all 3 variants around 8-15s and again sharply around 50-57s — a shared hard segment (busy instrument exchange), not a method-specific failure.
-* The 3 lines mostly move together; `dual_fusion` (green) is rarely far from the other two on any single clip, consistent with the small, CI-overlapping aggregate gap above — this is not a case where fusion rescues otherwise-bad clips.
+* Quality dips together across all 4 variants around 8-15s and again sharply around 50-57s — a shared hard segment (busy instrument exchange), not a method-specific failure.
+* The 4 lines mostly move together; `dual_fusion` (green) is rarely far from the others on any single clip, consistent with the small, CI-overlapping aggregate gap above — this is not a case where fusion rescues otherwise-bad clips.
 * This is still **current/near-future scene-graph triplet-set decoding** (same metric as the main feasibility protocol), not the OR-Action paper's dense temporal action-segmentation benchmark (frame accuracy, Edit Score, segmental F1 over 78 role-action classes) — that benchmark does not exist for EgoExOR in this repo yet (see next steps).
 
 | | now (macro-F1 / exact-match) | +1s (macro-F1 / exact-match) | +4s (macro-F1 / exact-match) |
@@ -210,10 +213,11 @@ The model over-predicts specific instrument-handling triplets (extra, rarely mis
 | `all_vjepa2` | 0.520 / 0.260 | **0.514** / 0.225 | **0.439** / **0.091** |
 | `all_surgmotion` | 0.516 / **0.268** | 0.484 / 0.194 | 0.409 / 0.073 |
 | `dual_fusion` | **0.523** / 0.263 | 0.513 / **0.265** | 0.432 / 0.061 |
+| `reverse_fusion` | 0.515 / 0.230 | 0.508 / 0.192 | 0.428 / 0.073 |
 
 ![MISS phase 3: micro-F1 vs. macro-F1 vs. exact-match, 2026-11-18](docs/phase3_fusion_metrics_2026-11-18.png)
 
-*Figure: same 3 variants/horizons as above, 3 metrics side by side. The rankings don't always agree (e.g. at `t`, `all_surgmotion` has the best exact-match but the worst micro-F1) — `scripts/make_phase3_fusion_chart.py`.*
+*Figure: same 4 variants/horizons as above, 3 metrics side by side. The rankings don't always agree (e.g. at `t`, `all_surgmotion` has the best exact-match but the worst micro-F1) — `scripts/make_phase3_fusion_chart.py`.*
 
 ## Results summary (tests run 2026-11-04)
 

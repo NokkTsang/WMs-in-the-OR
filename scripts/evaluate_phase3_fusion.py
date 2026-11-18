@@ -14,10 +14,15 @@ from the clip that just ended, not a future prediction. horizon_s=1 and 4 decode
 `1*15` / `4*15` frames (1s / 4s) *after* `end_frame`, which the model never saw: those are the
 actual future-prediction targets.
 
-Three primary variants compared here, all with the identical Ridge head / split / thresholds:
+Four primary variants compared here, all with the identical Ridge head / split / thresholds:
   all_vjepa2     -- V-JEPA 2 for every camera (exo + ego), the single-encoder baseline
   all_surgmotion -- SurgMotion for every camera (exo + ego), the other single-encoder baseline
-  dual_fusion    -- V-JEPA 2 on exo cameras + SurgMotion on ego cameras, concatenated (proposed idea)
+  dual_fusion    -- V-JEPA 2 on exo cameras + SurgMotion on ego cameras, concatenated (proposed idea:
+                    SurgMotion's surgical-video fine-tuning should help most on close-up egocentric
+                    hand/instrument motion, while general V-JEPA 2 stays fine for wide room views)
+  reverse_fusion -- SurgMotion on exo cameras + V-JEPA 2 on ego cameras (the opposite assignment,
+                    a negative control for the dual_fusion hypothesis: if the "SurgMotion helps ego"
+                    story is right, this should not beat dual_fusion)
 exo_vjepa2 / ego_surgmotion (single-view-only) are kept as weaker reference ablations.
 """
 
@@ -133,6 +138,7 @@ def load_phase3():
         "all_vjepa2": np.concatenate([vecs["exo_vjepa2"], vecs["ego_vjepa2"]], axis=1),
         "all_surgmotion": np.concatenate([vecs["exo_surgmotion"], vecs["ego_surgmotion"]], axis=1),
         "dual_fusion": np.concatenate([vecs["exo_vjepa2"], vecs["ego_surgmotion"]], axis=1),
+        "reverse_fusion": np.concatenate([vecs["exo_surgmotion"], vecs["ego_vjepa2"]], axis=1),
     }
     return meta, features, labels, coverage
 
@@ -236,6 +242,9 @@ def evaluate() -> pd.DataFrame:
                     "all_vjepa2": "concat(V-JEPA 2 exo mean, V-JEPA 2 ego mean) -- single-encoder baseline",
                     "all_surgmotion": "concat(SurgMotion exo mean, SurgMotion ego mean) -- single-encoder baseline",
                     "dual_fusion": "concat(V-JEPA 2 exo mean, SurgMotion ego mean) -- the proposed dual-encoder design",
+                    "reverse_fusion": (
+                        "concat(SurgMotion exo mean, V-JEPA 2 ego mean) -- opposite assignment, negative control"
+                    ),
                 },
             ),
             indent=2,

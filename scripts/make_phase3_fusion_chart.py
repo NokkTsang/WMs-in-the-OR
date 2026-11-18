@@ -21,16 +21,17 @@ BAR_OUT = ROOT / "docs" / "phase3_fusion_2026-11-18.png"
 TIMELINE_OUT = ROOT / "docs" / "phase3_fusion_timeline_2026-11-18.png"
 METRICS_OUT = ROOT / "docs" / "phase3_fusion_metrics_2026-11-18.png"
 
-# The 3 variants the discussion is actually about: single-encoder-for-everything (x2) vs. the
-# proposed exo/ego dual-encoder split. exo_vjepa2 / ego_surgmotion (single-view-only) are weaker
-# reference ablations, reported in the README table but left out of this headline chart.
+# The variants the discussion is actually about: single-encoder-for-everything (x2), the proposed
+# exo/ego dual-encoder split, and its reverse-assignment negative control. exo_vjepa2 / ego_surgmotion
+# (single-view-only) are weaker reference ablations, reported in the README table but left out here.
 LABELS = {
     "all_vjepa2": "all cameras,\nV-JEPA2",
     "all_surgmotion": "all cameras,\nSurgMotion",
     "dual_fusion": "exo=V-JEPA2\n+ ego=SurgMotion\n(proposed fusion)",
+    "reverse_fusion": "exo=SurgMotion\n+ ego=V-JEPA2\n(reverse control)",
 }
 ORDER = list(LABELS)
-COLORS = ["#90a4ae", "#64b5f6", "#2e7d32"]
+COLORS = ["#90a4ae", "#64b5f6", "#2e7d32", "#e07b39"]
 HORIZONS = [0, 1, 4]
 HORIZON_LABELS = {
     0: "now: graph AT t\n(nowcast, t = last input frame)",
@@ -40,8 +41,8 @@ HORIZON_LABELS = {
 
 
 def bar_chart(summary: pd.DataFrame) -> None:
-    fig, axes = plt.subplots(1, 3, figsize=(14.5, 5.2), sharey=True)
-    positions = [0, 0.8, 1.6]
+    fig, axes = plt.subplots(1, 3, figsize=(15.5, 5.2), sharey=True)
+    positions = [i * 0.8 for i in range(len(ORDER))]
     for ax, h in zip(axes, HORIZONS):
         sub = summary[summary.horizon_s == h].set_index("method").loc[ORDER]
         err = [sub.micro_f1 - sub.micro_f1_ci_low, sub.micro_f1_ci_high - sub.micro_f1]
@@ -50,14 +51,14 @@ def bar_chart(summary: pd.DataFrame) -> None:
             ax.text(bar.get_x() + bar.get_width() / 2, value + 0.012, f"{value:.3f}", ha="center", fontsize=9)
         ax.set_xticks(positions)
         ax.set_xticklabels([LABELS[m] for m in ORDER], fontsize=8)
-        ax.set_xlim(-0.55, 2.15)
+        ax.set_xlim(positions[0] - 0.55, positions[-1] + 0.55)
         ax.set_title(HORIZON_LABELS[h], fontsize=9.5)
         ax.set_ylim(0.70, 0.95)
         ax.grid(axis="y", alpha=0.3)
     axes[0].set_ylabel("scene-graph triplet micro-F1")
     fig.suptitle(
         "MISS phase 3 (\"Microscope-assisted disc removal\"), 6 takes, leave-one-take-out\n"
-        "all-V-JEPA2 vs. all-SurgMotion vs. dual-encoder (exo=V-JEPA2 / ego=SurgMotion) fusion -- test run 2026-11-18",
+        "all-V-JEPA2 vs. all-SurgMotion vs. dual-encoder fusion vs. its reverse-assignment control -- test run 2026-11-18",
         fontsize=11.5,
     )
     fig.text(
@@ -86,7 +87,7 @@ def timeline(qual: pd.DataFrame) -> None:
         ax.set_title(f"predicted-graph time = {HORIZON_LABELS[h].splitlines()[0]}", fontsize=9.5, loc="left")
         ax.grid(alpha=0.3)
     axes[-1].set_xlabel("time into MISS/3/take/1 (s) -- x-position = time the predicted scene graph is FOR")
-    axes[0].legend(loc="lower left", fontsize=8, ncol=3)
+    axes[0].legend(loc="lower left", fontsize=7.5, ncol=2)
 
     # Annotate one example clip on the "now" panel to make input-window vs. target-time concrete.
     example = qual[(qual.method == "dual_fusion") & (qual.horizon_s == 0)].sort_values("target_time_s").iloc[10]
@@ -110,21 +111,22 @@ def timeline(qual: pd.DataFrame) -> None:
 
 
 def metrics_chart(summary: pd.DataFrame) -> None:
-    """micro-F1 / macro-F1 / exact-match grouped by metric, 3 methods per group, one panel per horizon."""
+    """micro-F1 / macro-F1 / exact-match grouped by metric, one bar per method, one panel per horizon."""
     metrics = ["micro_f1", "macro_f1", "exact_match"]
     metric_labels = ["micro-F1\n(all triplets)", "macro-F1\n(per-triplet-class avg)", "exact graph\nmatch"]
-    fig, axes = plt.subplots(1, 3, figsize=(14.5, 5.4), sharey=True)
-    group_w, bar_w = 0.75, 0.22
+    n = len(ORDER)
+    bar_w = 0.9 / n
+    fig, axes = plt.subplots(1, 3, figsize=(15.5, 5.4), sharey=True)
     for ax, h in zip(axes, HORIZONS):
         sub = summary[summary.horizon_s == h].set_index("method").loc[ORDER]
         for i, method in enumerate(ORDER):
-            offsets = (i - 1) * bar_w
-            positions = [g * group_w + offsets for g in range(len(metrics))]
+            offset = (i - (n - 1) / 2) * bar_w
+            positions = [g + offset for g in range(len(metrics))]
             values = sub.loc[method, metrics].to_numpy(dtype=float)
             bars = ax.bar(positions, values, width=bar_w * 0.95, color=COLORS[i], edgecolor="#333", linewidth=0.7)
             for bar, value in zip(bars, values):
-                ax.text(bar.get_x() + bar.get_width() / 2, value + 0.015, f"{value:.2f}", ha="center", fontsize=6.8, rotation=90)
-        ax.set_xticks([g * group_w for g in range(len(metrics))])
+                ax.text(bar.get_x() + bar.get_width() / 2, value + 0.015, f"{value:.2f}", ha="center", fontsize=6.5, rotation=90)
+        ax.set_xticks(range(len(metrics)))
         ax.set_xticklabels(metric_labels, fontsize=8)
         ax.set_title(HORIZON_LABELS[h], fontsize=9.5)
         ax.set_ylim(0.0, 1.05)
@@ -134,11 +136,12 @@ def metrics_chart(summary: pd.DataFrame) -> None:
         handles=[plt.Rectangle((0, 0), 1, 1, fc=c, ec="#333") for c in COLORS],
         labels=[LABELS[m].replace("\n", " ") for m in ORDER],
         loc="lower left",
-        fontsize=7.5,
+        fontsize=7,
+        ncol=1,
     )
     fig.suptitle(
         "MISS phase 3, 6 takes, leave-one-take-out -- micro-F1 does not always agree with macro-F1 / exact-match\n"
-        "all-V-JEPA2 vs. all-SurgMotion vs. dual-encoder (exo=V-JEPA2 / ego=SurgMotion) fusion -- test run 2026-11-18",
+        "all-V-JEPA2 vs. all-SurgMotion vs. dual-encoder fusion vs. its reverse-assignment control -- test run 2026-11-18",
         fontsize=11,
     )
     fig.tight_layout(rect=(0, 0.02, 1, 0.86))
