@@ -205,17 +205,15 @@ The model over-predicts specific instrument-handling triplets (extra, rarely mis
 * The 3 lines mostly move together; `dual_fusion` (green) is rarely far from the other two on any single clip, consistent with the small, CI-overlapping aggregate gap above — this is not a case where fusion rescues otherwise-bad clips.
 * This is still **current/near-future scene-graph triplet-set decoding** (same metric as the main feasibility protocol), not the OR-Action paper's dense temporal action-segmentation benchmark (frame accuracy, Edit Score, segmental F1 over 78 role-action classes) — that benchmark does not exist for EgoExOR in this repo yet (see next steps).
 
-**Is micro-F1 alone enough to judge this, or do we need other metrics?** Micro-F1 is dominated by common, mostly-static triplets (room layout: `closeTo`/`lyingOn`/`controlling` — see the example table above), so a win there does not by itself mean "better at the clinically interesting rare events" (hand-overs, cutting). `summary.csv` already has precision/recall/macro-F1/exact-match per variant; macro-F1 and exact-match sometimes **disagree** with the micro-F1 ranking:
-
 | | now (macro-F1 / exact-match) | +1s (macro-F1 / exact-match) | +4s (macro-F1 / exact-match) |
 |---|---|---|---|
 | `all_vjepa2` | 0.520 / 0.260 | **0.514** / 0.225 | **0.439** / **0.091** |
 | `all_surgmotion` | 0.516 / **0.268** | 0.484 / 0.194 | 0.409 / 0.073 |
 | `dual_fusion` | **0.523** / 0.263 | 0.513 / **0.265** | 0.432 / 0.061 |
 
-e.g. at `t`, `all_surgmotion` has the **best exact-match** (0.268) despite the **worst micro-F1** (0.884) of the three — it gets more *whole* graphs exactly right but is worse on average across all triplets. At +4s, `dual_fusion` has the worst exact-match (0.061) even though its micro-F1 (0.812) is between the other two. **Recommendation: always report micro-F1 + macro-F1 + exact-match together** (all three are already computed, just add the other two columns to any chart/table used in the meeting), and if the project moves toward the OR-Action-style action-segmentation framing, add Edit Score and segmental F1@k too — those penalize over/under-segmentation and ordering errors that a single per-clip F1 cannot see at all.
+![MISS phase 3: micro-F1 vs. macro-F1 vs. exact-match, 2026-11-18](docs/phase3_fusion_metrics_2026-11-18.png)
 
-**My honest read on the direction right now:** plausible but **not yet evidence of a real effect** — treat it as a hypothesis worth one more scaled-up test, not a result to present as "fusion wins." Reasons: (1) the micro-F1 gap between `dual_fusion` and `all_vjepa2` is 0.3-0.7 points with heavily overlapping 95% CIs at every horizon; (2) macro-F1/exact-match don't consistently agree with the micro-F1 ranking (table above); (3) the mechanism is a linear Ridge head on frozen pooled features, which caps how much any true cross-view benefit could show up; (4) n=6 takes is small for take-level bootstrap. What *is* consistent across all three metrics: `all_surgmotion` (SurgMotion on exocentric cameras too) is never better than `all_vjepa2` at `t`/+1s — so if the project keeps one single-encoder baseline, it should be V-JEPA 2, not SurgMotion, and the open question is specifically whether splitting by view beats that single baseline, not whether SurgMotion beats V-JEPA 2 outright. The right next move (see next steps #1) is the same 3-way comparison on all 16 MISS takes before treating this as a finding either way — that is a few hours of reused compute, not a new experiment design.
+*Figure: same 3 variants/horizons as above, 3 metrics side by side. The rankings don't always agree (e.g. at `t`, `all_surgmotion` has the best exact-match but the worst micro-F1) — `scripts/make_phase3_fusion_chart.py`.*
 
 ## Results summary (tests run 2026-11-04)
 
@@ -422,6 +420,7 @@ WM in OR/
 ├── features/         [untracked] frozen per-camera features, one folder per `<encoder>_<camera>_L16s4/`, one .npz per take
 ├── docs/                         <- tracked images embedded in this README
 │   ├── phase3_fusion_2026-11-18.png          dual-encoder fusion bar chart (scripts/make_phase3_fusion_chart.py)
+│   ├── phase3_fusion_metrics_2026-11-18.png  micro-F1 vs. macro-F1 vs. exact-match comparison
 │   └── phase3_fusion_timeline_2026-11-18.png qualitative per-clip timeline for MISS/3/take/1
 ├── notebooks/                    <- jupytext .py percent-format sources are the source of truth
 │   ├── 00_egoexor_overview.py        dataset overview (structure, takes, phases, anomalies, per-camera examples)

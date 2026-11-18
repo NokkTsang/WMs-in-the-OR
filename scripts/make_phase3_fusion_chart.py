@@ -1,9 +1,11 @@
 """Figures for the MISS phase-3 dual-encoder fusion test (2026-11-18).
 
-1. Bar chart: all-V-JEPA2 vs all-SurgMotion vs dual-encoder fusion, 3 horizons.
+1. Bar chart: all-V-JEPA2 vs all-SurgMotion vs dual-encoder fusion, 3 horizons (micro-F1).
 2. Qualitative timeline for MISS/3/take/1 (the OR-Action Fig. 3 take): per-clip sample-F1
    over time, for the same 3 methods, with one annotated example clip showing the input
    video window and the predicted graph's target time.
+3. Metrics chart: micro-F1 / macro-F1 / exact-match side by side, since they don't always
+   agree on which variant is best (see README discussion).
 
 Source: `outputs/feasibility/MISS_phase3_fusion/{summary,qualitative_take3_1}.csv`.
 """
@@ -17,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RESULT_DIR = ROOT / "outputs" / "feasibility" / "MISS_phase3_fusion"
 BAR_OUT = ROOT / "docs" / "phase3_fusion_2026-11-18.png"
 TIMELINE_OUT = ROOT / "docs" / "phase3_fusion_timeline_2026-11-18.png"
+METRICS_OUT = ROOT / "docs" / "phase3_fusion_metrics_2026-11-18.png"
 
 # The 3 variants the discussion is actually about: single-encoder-for-everything (x2) vs. the
 # proposed exo/ego dual-encoder split. exo_vjepa2 / ego_surgmotion (single-view-only) are weaker
@@ -106,8 +109,48 @@ def timeline(qual: pd.DataFrame) -> None:
     print("saved", TIMELINE_OUT)
 
 
+def metrics_chart(summary: pd.DataFrame) -> None:
+    """micro-F1 / macro-F1 / exact-match grouped by metric, 3 methods per group, one panel per horizon."""
+    metrics = ["micro_f1", "macro_f1", "exact_match"]
+    metric_labels = ["micro-F1\n(all triplets)", "macro-F1\n(per-triplet-class avg)", "exact graph\nmatch"]
+    fig, axes = plt.subplots(1, 3, figsize=(14.5, 5.4), sharey=True)
+    group_w, bar_w = 0.75, 0.22
+    for ax, h in zip(axes, HORIZONS):
+        sub = summary[summary.horizon_s == h].set_index("method").loc[ORDER]
+        for i, method in enumerate(ORDER):
+            offsets = (i - 1) * bar_w
+            positions = [g * group_w + offsets for g in range(len(metrics))]
+            values = sub.loc[method, metrics].to_numpy(dtype=float)
+            bars = ax.bar(positions, values, width=bar_w * 0.95, color=COLORS[i], edgecolor="#333", linewidth=0.7)
+            for bar, value in zip(bars, values):
+                ax.text(bar.get_x() + bar.get_width() / 2, value + 0.015, f"{value:.2f}", ha="center", fontsize=6.8, rotation=90)
+        ax.set_xticks([g * group_w for g in range(len(metrics))])
+        ax.set_xticklabels(metric_labels, fontsize=8)
+        ax.set_title(HORIZON_LABELS[h], fontsize=9.5)
+        ax.set_ylim(0.0, 1.05)
+        ax.grid(axis="y", alpha=0.3)
+    axes[0].set_ylabel("score")
+    axes[0].legend(
+        handles=[plt.Rectangle((0, 0), 1, 1, fc=c, ec="#333") for c in COLORS],
+        labels=[LABELS[m].replace("\n", " ") for m in ORDER],
+        loc="lower left",
+        fontsize=7.5,
+    )
+    fig.suptitle(
+        "MISS phase 3, 6 takes, leave-one-take-out -- micro-F1 does not always agree with macro-F1 / exact-match\n"
+        "all-V-JEPA2 vs. all-SurgMotion vs. dual-encoder (exo=V-JEPA2 / ego=SurgMotion) fusion -- test run 2026-11-18",
+        fontsize=11,
+    )
+    fig.tight_layout(rect=(0, 0.02, 1, 0.86))
+    METRICS_OUT.parent.mkdir(exist_ok=True)
+    fig.savefig(METRICS_OUT, dpi=130)
+    print("saved", METRICS_OUT)
+
+
 def main() -> None:
-    bar_chart(pd.read_csv(RESULT_DIR / "summary.csv"))
+    summary = pd.read_csv(RESULT_DIR / "summary.csv")
+    bar_chart(summary)
+    metrics_chart(summary)
     timeline(pd.read_csv(RESULT_DIR / "qualitative_take3_1.csv"))
 
 
