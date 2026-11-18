@@ -3,20 +3,25 @@
 Goal: an OR world model that (1) encodes OR video into a latent state, (2) predicts how that state evolves, and (3) generates the predicted future.
 This repo contains the first tests of stages 1 and 2 on **EgoExOR** (Legacy release, 336×336). The same tests are being run on MM-OR by another group; both are compared in the project meeting.
 
-**Contents:** [Architecture](#proposed-architecture) · [V-JEPA feasibility](#v-jepa-feasibility-tests) · [Earlier results](#results-summary-tests-run-2026-11-04) · [Detailed results](#detailed-results) · [Next steps](#next-steps) · [Limits](#limits) · [Data](#egoexor-data) · [Reproduce](#reproduce)
+**Contents:** [Architecture](#proposed-architecture) · [V-JEPA feasibility](#v-jepa-feasibility-tests) · [Dual-encoder fusion test](#dual-encoder-exoego-fusion-test-miss-phase-3) · [Earlier results](#results-summary-tests-run-2026-11-04) · [Detailed results](#detailed-results) · [Next steps](#next-steps) · [Limits](#limits) · [Data](#egoexor-data) · [Reproduce](#reproduce) · [Repository structure](#repository-structure)
 
 ## Proposed architecture
 
 ```mermaid
 flowchart TB
     subgraph INPUT["📥 Input: historical OR data"]
-        X["Past OR video<br/>x(t-k:t)"]
+        XEXO["Past exocentric video<br/>x_exo(t-k:t)<br/>external_1..5, microscope, ..."]
+        XEGO["Past egocentric video<br/>x_ego(t-k:t)<br/>head_surgeon, assistant, ..."]
         G["Past scene graph<br/>G(t-k:t)"]
         P["Past phase labels<br/>p(t-k:t)"]
     end
     subgraph STAGE1["① Stage 1 · Encoding  ✅ tested"]
-        E["Frozen V-JEPA 2"]
-        Z["Past latents<br/>z(t-k:t)"]
+        EEXO["Frozen V-JEPA 2<br/>(exo encoder)"]
+        EEGO["Frozen SurgMotion<br/>(ego encoder)"]
+        ZEXO["Exo latents<br/>z_exo(t-k:t)"]
+        ZEGO["Ego latents<br/>z_ego(t-k:t)"]
+        FUSE["Variant C · dual-encoder fusion<br/>✅ tested (MISS phase 3)<br/>now: concat + Ridge head<br/>next: attentive Role Pooler / Classifier"]
+        Z["Fused past latent<br/>z(t-k:t)"]
     end
     subgraph OPTIONAL["Optional · Variant B"]
         F["State fusion module"]
@@ -41,7 +46,9 @@ flowchart TB
         L["Prediction and generation losses"]
     end
 
-    X --> E --> Z --> D
+    XEXO --> EEXO --> ZEXO --> FUSE
+    XEGO --> EEGO --> ZEGO --> FUSE
+    FUSE --> Z --> D
     D --> ZF & PF & GF
     ZF & PF & GF --> S
     S --> GEN --> XF
@@ -57,12 +64,14 @@ flowchart TB
 
     classDef inp fill:#e3eeff,stroke:#5b8def,color:#111
     classDef enc fill:#e3f6e8,stroke:#3aa65b,color:#111
+    classDef fuse fill:#e3f6e8,stroke:#1565c0,color:#111
     classDef dyn fill:#f0e8fb,stroke:#8a5bd0,color:#111
     classDef gen fill:#fdeaea,stroke:#d9534f,color:#111
     classDef opt fill:#fff8e1,stroke:#e0a800,color:#111
     classDef sup fill:#f2f2f2,stroke:#888,color:#111
-    class X,G,P inp
-    class E,Z enc
+    class XEXO,XEGO,G,P inp
+    class EEXO,EEGO,ZEXO,ZEGO enc
+    class FUSE,Z fuse
     class D,ZF,PF,GF,S dyn
     class GEN,XF gen
     class F opt
@@ -78,13 +87,9 @@ flowchart TB
 
 * **Variant A (main line):** the dynamics model takes **video latents only**; phase and scene-graph labels are only supervision targets for `p̂` and `Ĝ`.
 * **Variant B (optional ablation):** a fusion module also feeds past scene graph and phase to the dynamics model. A vs B measures what structured past state adds to video.
+* **Variant C (dual-encoder cross-view fusion):** Stage 1 is split into one frozen encoder per view type — **V-JEPA 2 on exocentric cameras**, **SurgMotion on egocentric cameras** — fused before Stage 2. Tested so far as the cheapest possible version of this idea (masked per-view mean pooling, concatenated, Ridge head), restricted to MISS phase 3; see [Dual-encoder fusion test](#dual-encoder-exoego-fusion-test-miss-phase-3) for the results and what a learned fusion (attentive Role Pooler / Role Classifier) would add.
 * The "controls" in the results (true current scene graph + phase) are an evaluation baseline, not part of the model.
 
-### Roadmap
-
-![Project roadmap](docs/roadmap.png)
-
-*Green = tested, preliminary conclusion. Red = to do. Figure source: `scripts/make_roadmap.py`.*
 
 ## V-JEPA feasibility tests
 
@@ -164,17 +169,53 @@ Full scores, per-relation errors, take splits, paired intervals and **61,860 sav
 
 Reports: [MISS](notebooks/05_vjepa_feasibility_MISS.ipynb) · [Ultrasound](notebooks/05_vjepa_feasibility_Ultrasound.ipynb) · [notebook source](notebooks/05_vjepa_feasibility.py). Executed notebooks and result files are generated locally, not tracked.
 
-### Reproduce the feasibility tests
+## Dual-encoder exo/ego fusion test (MISS phase 3)
 
-```powershell
-.venv\Scripts\python.exe scripts\check_vjepa_io.py
-.venv\Scripts\python.exe scripts\extract_multiview_features.py
-.venv\Scripts\python.exe scripts\evaluate_triplets.py
-.venv\Scripts\python.exe -m unittest discover -s scripts -p test_evaluate_triplets.py -v
-powershell -ExecutionPolicy Bypass -File scripts\run_pipeline.ps1 -SkipExtract -Notebooks 05_vjepa_feasibility
-```
+**Results** (micro-F1 over all GT triplets, mean ± 95% take-bootstrap CI from 2,000 resamples, **all 6 MISS/phase-3 takes**, leave-one-take-out — not just take 1; `outputs/feasibility/MISS_phase3_fusion/`). Three directly-comparable variants, same head/split/thresholds, differing only in which encoder sees which camera:
 
-Feature extraction completes missing V-JEPA / DINOv2 files for both view groups, reuses validated existing files, caches raw-frame validity under `data/cache/clip_validity/` and reads camera blocks together. Evaluation can be restricted with `--procedures MISS` or `--views ego`. Results are stored under `outputs/feasibility/<procedure>_<view>/`; the visualization notebook requires a completed `protocol.json` rather than displaying a partial run.
+| Variant | now: graph AT t | +1s: graph AFTER t | +4s: graph AFTER t |
+|---|---|---|---|
+| `all_vjepa2` — V-JEPA 2 for every camera (exo + ego) | 0.890 [0.877, 0.901] | 0.884 [0.875, 0.894] | **0.826 [0.805, 0.843]** |
+| `all_surgmotion` — SurgMotion for every camera (exo + ego) | 0.884 [0.871, 0.894] | 0.864 [0.855, 0.873] | 0.798 [0.774, 0.823] |
+| **`dual_fusion` — V-JEPA 2 on exo + SurgMotion on ego (proposed)** | **0.893 [0.881, 0.907]** | **0.891 [0.878, 0.904]** | 0.812 [0.790, 0.833] |
+
+(Single-view-only ablations, for reference: `exo_vjepa2` 0.888 / 0.885 / 0.817; `ego_surgmotion` 0.886 / 0.871 / 0.813 — both weaker than any "both views" variant above at `t`/+1s.)
+
+![MISS phase 3: all-V-JEPA2 vs. all-SurgMotion vs. dual-encoder fusion, 2026-11-18](docs/phase3_fusion_2026-11-18.png)
+
+*Figure: scene-graph triplet micro-F1 (95% take-bootstrap CI), all 6 MISS-phase-3 takes, leave-one-take-out, test run **2026-11-18**. `scripts/make_phase3_fusion_chart.py`.*
+
+* **Current graph and +1s:** `all_surgmotion` (SurgMotion on every camera) is consistently the **weakest** of the three — using SurgMotion for the wide exocentric views does not help. The proposed `dual_fusion` (V-JEPA 2 exo / SurgMotion ego) is the best of the three at both horizons, by +0.3 to +2.7 micro-F1 points — small but in the direction the fusion hypothesis predicts.
+* **+4s:** `all_vjepa2` (plain V-JEPA 2 everywhere) is best; `dual_fusion` is statistically tied with `all_surgmotion` for worst. Splitting encoders by view does not help longer-horizon forecasting in this test.
+* **CIs still overlap substantially** between `all_vjepa2` and `dual_fusion` at every horizon, so "dual_fusion wins at t/+1s" is a lean, not a settled result, even using all 6 takes.
+
+| input video | predicted-graph time | GT triplets | predicted triplets | sample F1 |
+|---|---|---|---|---|
+| 0.0s – 4.0s | 4.0s | anaesthetist\|closeTo\|operating_table; ...; patient\|lyingOn\|operating_table (6 triplets) | same 6, **+** `forceps\|touching\|patient`, `head_surgeon\|holding\|forceps` | 0.86 |
+| 5.0s – 9.0s | 9.0s | ...; assistant\|looking\|instrument_table; ... (6 triplets) | missing `assistant\|looking\|instrument_table`, **+** `assistant\|holding\|forceps`, `head_surgeon\|controlling\|microscope_controller`, `head_surgeon\|looking\|microscope_eye` | 0.71 |
+| 7.0s – 11.0s | 11.0s | 5 triplets (room/table layout only) | 5 GT triplets **+ 6 extra**: `curette\|touching\|patient`, `head_surgeon\|holding\|curette`, `head_surgeon\|holding\|forceps`, `head_surgeon\|looking\|microscope_eye`, `head_surgeon\|removing\|herbal_disk`, `assistant\|closeTo\|operating_table` | 0.50 |
+
+The model over-predicts specific instrument-handling triplets (extra, rarely missing) more than it drops ones that are actually present — the recall/precision split in the main table (precision ≳ recall at `t`/+1s, flips at +4s) is the same pattern. Full timeline across the whole take:
+
+![MISS/3/take/1 per-clip prediction quality over time, 2026-11-18](docs/phase3_fusion_timeline_2026-11-18.png)
+
+*Figure: per-clip sample-F1 (`2·|GT∩pred| / (|GT|+|pred|)`) over time for the 3 primary variants, one row per horizon; x-axis = the time the predicted graph is **for** (not the input time). The annotated example shows one clip's input window and its nowcast target explicitly. `scripts/make_phase3_fusion_chart.py`.*
+
+* Quality dips together across all 3 variants around 8-15s and again sharply around 50-57s — a shared hard segment (busy instrument exchange), not a method-specific failure.
+* The 3 lines mostly move together; `dual_fusion` (green) is rarely far from the other two on any single clip, consistent with the small, CI-overlapping aggregate gap above — this is not a case where fusion rescues otherwise-bad clips.
+* This is still **current/near-future scene-graph triplet-set decoding** (same metric as the main feasibility protocol), not the OR-Action paper's dense temporal action-segmentation benchmark (frame accuracy, Edit Score, segmental F1 over 78 role-action classes) — that benchmark does not exist for EgoExOR in this repo yet (see next steps).
+
+**Is micro-F1 alone enough to judge this, or do we need other metrics?** Micro-F1 is dominated by common, mostly-static triplets (room layout: `closeTo`/`lyingOn`/`controlling` — see the example table above), so a win there does not by itself mean "better at the clinically interesting rare events" (hand-overs, cutting). `summary.csv` already has precision/recall/macro-F1/exact-match per variant; macro-F1 and exact-match sometimes **disagree** with the micro-F1 ranking:
+
+| | now (macro-F1 / exact-match) | +1s (macro-F1 / exact-match) | +4s (macro-F1 / exact-match) |
+|---|---|---|---|
+| `all_vjepa2` | 0.520 / 0.260 | **0.514** / 0.225 | **0.439** / **0.091** |
+| `all_surgmotion` | 0.516 / **0.268** | 0.484 / 0.194 | 0.409 / 0.073 |
+| `dual_fusion` | **0.523** / 0.263 | 0.513 / **0.265** | 0.432 / 0.061 |
+
+e.g. at `t`, `all_surgmotion` has the **best exact-match** (0.268) despite the **worst micro-F1** (0.884) of the three — it gets more *whole* graphs exactly right but is worse on average across all triplets. At +4s, `dual_fusion` has the worst exact-match (0.061) even though its micro-F1 (0.812) is between the other two. **Recommendation: always report micro-F1 + macro-F1 + exact-match together** (all three are already computed, just add the other two columns to any chart/table used in the meeting), and if the project moves toward the OR-Action-style action-segmentation framing, add Edit Score and segmental F1@k too — those penalize over/under-segmentation and ordering errors that a single per-clip F1 cannot see at all.
+
+**My honest read on the direction right now:** plausible but **not yet evidence of a real effect** — treat it as a hypothesis worth one more scaled-up test, not a result to present as "fusion wins." Reasons: (1) the micro-F1 gap between `dual_fusion` and `all_vjepa2` is 0.3-0.7 points with heavily overlapping 95% CIs at every horizon; (2) macro-F1/exact-match don't consistently agree with the micro-F1 ranking (table above); (3) the mechanism is a linear Ridge head on frozen pooled features, which caps how much any true cross-view benefit could show up; (4) n=6 takes is small for take-level bootstrap. What *is* consistent across all three metrics: `all_surgmotion` (SurgMotion on exocentric cameras too) is never better than `all_vjepa2` at `t`/+1s — so if the project keeps one single-encoder baseline, it should be V-JEPA 2, not SurgMotion, and the open question is specifically whether splitting by view beats that single baseline, not whether SurgMotion beats V-JEPA 2 outright. The right next move (see next steps #1) is the same 3-way comparison on all 16 MISS takes before treating this as a finding either way — that is a few hours of reused compute, not a new experiment design.
 
 ## Results summary (tests run 2026-11-04)
 
@@ -245,6 +286,16 @@ Onset AUC / offset AUC at +1 s / +4 s (`controls` = true current scene graph + p
 ## Next steps
 
 **Status: proposed ablations, not implemented or trained.** The completed results above remain the reference. The objective is better structured-state reconstruction and genuine future prediction, not making a Transformer beat Ridge for its own sake.
+
+### Recommended next experiments for the dual-encoder fusion line
+
+In priority order, cheapest/most diagnostic first:
+
+1. **Widen the fusion test before trusting the ranking.** Six take-held-out folds is too few to cleanly separate the variants (CIs overlap by 0.01-0.03 micro-F1 everywhere). Re-run the same `evaluate_phase3_fusion.py` protocol on **all 16 MISS takes** (SurgMotion ego features are already extracted for all 16; no new encoding needed for phases 1/2/4) and, separately, on Ultrasound (needs new SurgMotion ego feature extraction for its takes). This directly tells us whether "V-JEPA 2 exo + SurgMotion ego" generalizes past phase 3 before investing in a learned fusion module.
+2. **Replace ridge + early-concatenation with the real OR-Action-style fusion module.** The current `dual_fusion` variant is a frozen-feature, linear-head approximation. The paper's actual mechanism is an attentive Role Pooler (Eq. 2, learnable queries cross-attending to each encoder's token sequence) followed by a Role Classifier that cross-attends over all per-role tokens at each timestep (Eq. 3) — trained end-to-end, not frozen-then-ridge. This needs cached `seq` (token) features, not just the pooled `feat` mean we used here, and a small trainable attention stack (see `### 2. Add spatial token readout` and `### 3. Make view weighting compatible...` above, which already sketch this but were not built for a two-encoder input). This is the right next engineering step if experiment 1 confirms the fusion gain holds at scale.
+3. **Decide scene-graph vs. action/phase-label target explicitly, don't default to scene graphs.** Three options exist, at different granularity: (a) per-frame scene-graph triplets (what we test here and in the main feasibility protocol); (b) the 4 MISS phase labels (too coarse and near-constant within a take — already noted above as a weak forecasting target); (c) **OR-Action-style dense role-actions**, generated by a rule-based mapper from our existing GT scene graphs (same idea as OR-Action Sect. 2, applied to EgoExOR's own graphs rather than their derived benchmark). (c) is the one most comparable to the paper's actual result (Table 1: vision-only temporal model ≈ GT+GNN upper bound, both far above SG-prediction + rule-mapping) and is the most direct test of whether a dual-encoder *temporal* model (not just a per-clip ridge head) beats scene-graph-based pipelines on EgoExOR. Flag for mentor discussion: building this benchmark (segment smoothing, state/event rule tuning) is a multi-day task, not a quick addition.
+4. **If pursuing (c):** reuse our cached per-camera features (`feat`/`seq`) as the OR-Action vision-only model's frozen encoder input, add a small temporal GRU/Transformer + per-role action/activity heads (their Eq. 4-5) on top, and report the same frame-accuracy / Edit Score / segmental-F1 metrics so results are directly comparable to Table 1 of the paper, not just to our own scene-graph micro-F1.
+5. **Horizon degradation is not fusion-specific.** At +4s every variant (fusion or not) drops ~0.07 micro-F1 from `t`; this matches the smaller, pre-existing +4s gap over persistence reported above. Don't read the dual-fusion +4s regression as evidence the idea fails — it needs the same persistence-baseline comparison as the main protocol (`*_persist` rows), which this smaller script does not yet compute.
 
 ### Evidence versus hypotheses
 
@@ -358,6 +409,55 @@ Stored in `ckpts\` (DINOv2 comes from `timm`):
 | CAFormer-S18 ImageNet-1k | `caformer_s18_in1k.pth` (105 MB) | `https://huggingface.co/sail/dl/resolve/main/caformer/caformer_s18.pth` |
 | SurgMotion-L | `SurgMotion-vitl.pt` (1.2 GB) | `hf download CAIR-HKISI/SurgMotion SurgMotion-vitl.pt --local-dir ckpts` (gated; `hf auth login`) |
 
+### Repository structure
+
+```text
+WM in OR/
+├── README.md
+├── requirements.txt, ruff.toml
+├── .gitignore
+├── ckpts/            [untracked] frozen encoder weights (V-JEPA 2, SurgMotion, SurgeNetXL, CAFormer); see Checkpoints below
+├── data/             [untracked] data/raw (EgoExOR .h5 files, splits.h5), data/cache (clip validity, scene-graph pickles)
+├── third_party/      [untracked] cloned EgoExOR (LUT/calibration) and SurgMotion (model code) repos, see Reproduce
+├── features/         [untracked] frozen per-camera features, one folder per `<encoder>_<camera>_L16s4/`, one .npz per take
+├── docs/                         <- tracked images embedded in this README
+│   ├── phase3_fusion_2026-11-18.png          dual-encoder fusion bar chart (scripts/make_phase3_fusion_chart.py)
+│   └── phase3_fusion_timeline_2026-11-18.png qualitative per-clip timeline for MISS/3/take/1
+├── notebooks/                    <- jupytext .py percent-format sources are the source of truth
+│   ├── 00_egoexor_overview.py        dataset overview (structure, takes, phases, anomalies, per-camera examples)
+│   ├── 01_probe_and_temporal.py      per encoder x camera: phase/scene-graph probes, latent prediction vs copy-last
+│   ├── 02_dynamics_and_anomaly.py    event prediction with controls, latent motion vs change, anomaly test
+│   ├── 03_synthesis.py               encoder x camera heatmaps, camera vs encoder effect
+│   ├── 04_predictor_comparison.py    V-JEPA 2, all cameras pooled: copy-last/ridge/MLP/GRU/Transformer
+│   ├── 05_vjepa_feasibility.py       causal Ego/Exo triplet-set results, paired comparisons, graph examples
+│   └── *.ipynb                   [untracked, gitignored] executed notebooks, regenerated by run_pipeline.ps1
+├── scripts/                      <- all reproduce commands below call into these
+│   ├── egoexor_io.py                 shared HDF5 reading, colour LUT, anomaly/phase-name tables
+│   ├── probe_utils.py                shared loaders / leave-one-take-out probes (used by notebooks 01-04)
+│   ├── extract_features.py           single-camera frozen feature extraction (any of the 5 encoders)
+│   ├── extract_multiview_features.py all-camera V-JEPA2/DINOv2 extraction for the causal feasibility protocol
+│   ├── check_vjepa_io.py             real-input I/O smoke test (shapes, latency, memory)
+│   ├── evaluate_triplets.py          causal take-held-out triplet evaluation (main Ego/Exo feasibility protocol)
+│   ├── test_evaluate_triplets.py     regression tests for evaluate_triplets.py's protocol logic
+│   ├── evaluate_phase3_fusion.py     dual-encoder (V-JEPA2 exo / SurgMotion ego) fusion test, MISS phase 3 only
+│   ├── make_phase3_fusion_chart.py   renders the 2 docs/phase3_fusion_*.png figures from its output CSVs
+│   ├── download_rest.ps1, download_segmented.py  resumable EgoExOR .h5 download into data/raw
+│   └── run_pipeline.ps1              feature extraction + notebook execution, end to end
+└── outputs/          [mostly untracked -- regenerate locally with the commands below]
+    ├── overview/                     notebook 00 figures (cameras, gaze, hands, audio, phases, point cloud, ...)
+    ├── probe/{MISS,Ultrasound}/      notebook 01: phase/scene-graph probe CSVs, UMAP
+    ├── dynamics/                     notebook 02: event/anomaly CSVs and figures, camera fusion
+    ├── synthesis/{MISS,Ultrasound}/  notebook 03: encoder x camera heatmaps
+    ├── predictors/{MISS,Ultrasound}/ notebook 04: copy-last/ridge/MLP/GRU/Transformer comparison
+    └── feasibility/                  notebook 05 + scripts/evaluate_*.py:
+        ├── io/                           check_vjepa_io.py sample frames, latency, memory
+        ├── {MISS,Ultrasound}_{ego,exo}/  main protocol: summary/per_take/per_relation/per_triplet csv,
+        │                                 coverage.csv, paired_comparisons.csv, predictions.jsonl (large, untracked)
+        ├── *_triplet_f1.png, *_graph_examples.png   notebook 05 figures
+        └── MISS_phase3_fusion/       [TRACKED] this session's test: summary.csv, per_take.csv, coverage.csv,
+                                       qualitative_take3_1.csv, protocol.json -- small enough to commit directly
+```
+
 ### Layout
 | Path | Purpose |
 |---|---|
@@ -368,7 +468,9 @@ Stored in `ckpts\` (DINOv2 comes from `timm`):
 | `notebooks/04_predictor_comparison.py` | V-JEPA 2, all cameras pooled: copy-last / ridge / MLP / GRU / Transformer (tables 2a, 2b) |
 | `notebooks/05_vjepa_feasibility.py` | measured encoder I/O, separate Ego / Exo triplet-set results, paired comparisons, relation errors and graph examples |
 | `scripts/check_vjepa_io.py`, `scripts/extract_multiview_features.py`, `scripts/evaluate_triplets.py` | real-input I/O checks, resumable all-camera frozen features, causal take-held-out triplet evaluation |
-| `scripts/` | `egoexor_io.py` (HDF5 reading, LUT, anomaly table), `probe_utils.py` (shared loaders / probes), `extract_features.py` (frozen features, shared camera read), `download_*`, `run_pipeline.ps1`, `make_roadmap.py` |
+| `scripts/evaluate_phase3_fusion.py` | dual-encoder (V-JEPA 2 exo / SurgMotion ego) fusion test, MISS phase 3 only, leave-one-take-out |
+| `scripts/make_phase3_fusion_chart.py` | figures saved to `docs/`: phase-3 fusion bar chart + qualitative timeline |
+| `scripts/` | `egoexor_io.py` (HDF5 reading, LUT, anomaly table), `probe_utils.py` (shared loaders / probes), `extract_features.py` (frozen features, shared camera read), `download_*`, `run_pipeline.ps1` |
 | `outputs/` | figures and result tables (`overview`, `probe`, `dynamics`, `synthesis`, `predictors`, `feasibility`); feasibility also includes prediction JSONL and split / coverage records |
 
-The `.py` notebooks (jupytext percent format) are the source of truth; executed `.ipynb` files are generated as `<name>_<procedure>.ipynb`. `data/`, `features/`, `ckpts/`, `third_party/`, `outputs/` are not tracked.
+The `.py` notebooks (jupytext percent format) are the source of truth; executed `.ipynb` files are generated as `<name>_<procedure>.ipynb`. `data/`, `features/`, `ckpts/`, `third_party/`, `outputs/` are untracked and regenerated locally (see Reproduce), **except** `outputs/feasibility/MISS_phase3_fusion/`, which is small and committed directly so results are visible on GitHub without re-running anything.

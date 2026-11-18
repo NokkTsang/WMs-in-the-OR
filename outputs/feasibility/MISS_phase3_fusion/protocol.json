@@ -1,0 +1,25 @@
+{
+  "status": "complete",
+  "completed_utc": "2026-11-18T00:13:33.511983+00:00",
+  "procedure": "MISS",
+  "phase": 3,
+  "phase_name": "Microscope-assisted disc removal",
+  "n_samples": 396,
+  "n_takes": 6,
+  "horizons_s": [
+    0,
+    1,
+    4
+  ],
+  "horizon_meaning": "input clip always ends at frame `end_frame` (=t, never sees later frames); horizon_s=0 decodes the graph AT t (nowcast, no future info); horizon_s=1/4 decode the graph 1s/4s AFTER t (true future prediction)",
+  "split": "leave-one-take-out (6 folds), inner GroupShuffleSplit(test_size=0.2) for threshold validation",
+  "decoder": "StandardScaler + Ridge(alpha=1000), train takes only",
+  "qualitative_take": "3_1",
+  "variants": {
+    "exo_vjepa2": "mean of V-JEPA 2 features over available exo cameras (external_1..5, microscope)",
+    "ego_surgmotion": "mean of SurgMotion features over available ego cameras (head_surgeon, assistant, circulator, anesthetist)",
+    "all_vjepa2": "concat(V-JEPA 2 exo mean, V-JEPA 2 ego mean) -- single-encoder baseline",
+    "all_surgmotion": "concat(SurgMotion exo mean, SurgMotion ego mean) -- single-encoder baseline",
+    "dual_fusion": "concat(V-JEPA 2 exo mean, SurgMotion ego mean) -- the proposed dual-encoder design"
+  }
+}

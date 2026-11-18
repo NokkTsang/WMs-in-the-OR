@@ -8,7 +8,11 @@ data/
 features/
 ckpts/
 third_party/
-outputs/
+outputs/*
+# small result tables tied to a specific README section/meeting -- worth tracking (few hundred KB, no raw predictions dump)
+!outputs/feasibility/
+outputs/feasibility/*
+!outputs/feasibility/MISS_phase3_fusion/
 
 # notebooks: the jupytext .py files are the source of truth, executed .ipynb files are regenerated
 notebooks/*.ipynb

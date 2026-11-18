@@ -1,0 +1,7 @@
+take_id,candidates,kept,excluded_missing_annotations,excluded_no_usable_view,exo_cams,ego_cams
+3_1,69,66,3,0,"external_1,external_2,external_3,external_4,external_5,microscope","anesthetist,assistant,circulator,head_surgeon"
+3_2,51,48,3,0,"external_1,external_2,external_3,external_4,external_5,microscope","anesthetist,assistant,circulator,head_surgeon"
+3_3,72,72,0,0,"external_1,external_2,external_3,external_4,external_5,microscope","anesthetist,assistant,circulator,head_surgeon"
+3_4,59,59,0,0,"external_1,external_2,external_3,external_4,external_5,microscope","anesthetist,assistant,circulator,head_surgeon"
+3_5,78,78,0,0,"external_1,external_2,external_3,external_4,external_5,microscope","anesthetist,assistant,circulator,head_surgeon"
+3_6,73,73,0,0,"external_1,external_2,external_3,external_4,external_5,microscope","anesthetist,assistant,circulator,head_surgeon"
